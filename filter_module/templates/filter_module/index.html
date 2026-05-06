@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<head>
+    <meta charset="UTF-8"> <!--кодировка страницы-->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!--адаптация под мобильные устройства-->
+   <title>Контейнер безопасности - Фильтрация и анализ контента, рекламы </title> <!--название страницы-->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script> <!--подключение библиотеки для графиков-->
+  <style> 
+    * { box-sizing: border-box; margin: 0; padding: 0; } /*убираем отступы и поля*/
+    body {
+        font-family: 'Segoe UI', Arial, sans-serif;
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f7fa;
+    } 
+    h1 { color: #1e293b; font-size: 22px; font-weight: 500; margin-bottom: 5px; }
+    .subtitle { color: #64748b; margin-bottom: 25px; font-size: 13px; } /*подзаголовок*/
+    h2 { color: #334155; font-size: 16px; font-weight: 500; margin: 20px 0 15px; } 
+    input, textarea { /*стили для полей ввода*/
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: 13px;
+        background-color: #fff;
+        margin-bottom: 12px;
+    }
+    input:focus, textarea:focus { outline: none; border-color: #2563eb; } /*стиль поля при фокусе*/
+    button {
+        background-color: #2563eb;
+        color: white;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        margin-right: 8px;
+        margin-bottom: 10px;
+    }
+    button:hover { background-color: #1d4ed8; } /*цвет кнопки при наведении*/
+    .result {
+        padding: 10px 12px;
+        border-radius: 4px;
+        font-size: 13px;
+        margin: 12px 0;
+    }
+    .allowed { background-color: #dcfce7; color: #166534; } /*стиль для разрешенного контента*/
+    .blocked { background-color: #fee2e2; color: #991b1b; } /*стиль для заблок. контента*/
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        margin-top: 12px;
+    }
+    th, td {
+        border: 1px solid #e2e8f0;
+        padding: 8px 6px;
+        text-align: left;
+    }
+    th { background-color: #f1f5f9; font-weight: 500; }
+    .stats-container {
+        display: flex;
+        justify-content: center;
+        margin: 10px 0;
+    }
+    .chart-box { width: 300px; }
+    .stats-text {
+        display: flex;
+        justify-content: center;
+        gap: 30px;
+        margin: 15px 0 5px;
+        font-size: 14px;
+    }
+    .stats-allowed { color: #2563eb; font-weight: 600; }
+            .stats-blocked { color: #dc2626; font-weight: 600; }
+            hr { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
+        </style>
+    </head>
+    <body>
+        <h1>Контейнер безопасности</h1>
+        <div class="subtitle">Защита от вредоносного кода через рекламу и контент</div>
+
+        <!-- поля ввода с встроенными подсказками-->
+        <input type="text" id="urlInput" placeholder="URL для проверки" value="https://malicious.com/bad">
+        <textarea id="contentInput" rows="3" placeholder="Содержимое для анализа"><script>alert('XSS')</script></textarea>
+        <button onclick="checkContent()">Проверить</button>
+        <button onclick="refreshLogs()">Обновить</button>
+        <!-- пустой блок для вывода результата проверки-->
+        <div id="result" class="result" style="display: none;"></div>
+
+        <hr>
+        <h2>Статистика фильтрации</h2>
+        <div class="stats-container"> <!--контейнер для диаграммы-->
+            <div class="chart-box"> 
+                <canvas id="statsChart"></canvas> <!--диаграмма-->
+            </div>
+        </div>
+        <div class="stats-text">
+            <span>Разрешено: <span id="allowedCount" class="stats-allowed">0</span></span> <!--отображение разреш. подписью-->
+            <span>Заблокировано: <span id="blockedCount" class="stats-blocked">0</span></span> <!--отображение заблокир. подписью-->
+        </div>
+      
+        <hr>
+        <h2>Журнал событий</h2>
+        <table id="logsTable"> <!--таблица-->
+            <thead>
+                <tr>
+                    <th>Время</th>
+                    <th>URL</th>
+                    <th>Решение</th>
+                    <th>Причина</th>
+                </tr>
+            </thead>
+            <tbody id="logsBody">
+                <tr><td colspan="4" style="text-align: center;">—</td></tr> <!--пустая строка по умолчанию в начале-->
+            </tbody>
+        </table>
+      
+        <script> 
+          let chart = null; //переменная для хранения диаграммы
+          function initChart() { //создание пустой диаграммы
+              const ctx = document.getElementById('statsChart').getContext('2d');
+              chart = new Chart(ctx, { //инициализация диаграммы
+                  type: 'doughnut',
+                  data: {
+                      labels: ['Разрешено', 'Заблокировано'],
+                      datasets: [{
+                          data: [0, 0],
+                          backgroundColor: ['#2563eb', '#dc2626'],
+                          borderWidth: 0
+                      }]
+                  },
+                  options: {
+                      responsive: true, 
+                      cutout: '60%',
+                      animation: false,
+                      plugins: { legend: { display: false } }
+                  }
+              });
+          }
+          //отправка данных на проверку в API /api/check
+          async function checkContent() {
+              const url = document.getElementById('urlInput').value; //значение поля ввода URL
+              const content = document.getElementById('contentInput').value; //значение поля ввода контента
+              const response = await fetch('/api/check', { //отправка запроса
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({url, content})
+              });
+              const data = await response.json(); //получение ответа
+              const resultDiv = document.getElementById('result'); //блок для вывода результата
+              resultDiv.style.display = 'block'; 
+              resultDiv.className = 'result ' + (data.decision === 'ALLOWED' ? 'allowed' : 'blocked'); //стиль в зависимости от решения
+              resultDiv.innerHTML = data.decision === 'ALLOWED' ? 'Разрешено' : 'Заблокировано: ' + data.reason; 
+              refreshLogs(); //обновление таблицы
+              refreshStats(); //обновление диаграммы
+          }
+          //получение журнала через API /api/logs
+          async function refreshLogs() {
+              const response = await fetch('/api/logs'); //отправка запроса
+              const logs = await response.json(); //получение ответа
+              const tbody = document.getElementById('logsBody'); //тело таблицы
+              if (logs.length === 0) {
+                  tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">—</td></tr>';
+                  return;
+              }
+              tbody.innerHTML = logs.reverse().slice(0, 10).map(log =>
+                  '<tr><td>' + log.timestamp + '</td><td>' + (log.url || '-') +
+                  '</td><td style="color: ' + (log.decision === 'ALLOWED' ? '#16a34a' : '#dc2626') + '; font-weight: 500;">' +
+                  log.decision + '</td><td>' + log.reason + '</td></tr>' 
+              ).join(''); //заполнение таблицы
+          }
+          //получение статистики через API /api/stats
+                  async function refreshStats() { 
+                      const response = await fetch('/api/stats'); //отправка запроса
+                      const stats = await response.json(); //получение ответа
+                      document.getElementById('allowedCount').innerText = stats.allowed; //обновление значений разрешенных на странице
+                      document.getElementById('blockedCount').innerText = stats.blocked; 
+                      if (chart) {
+                          chart.data.datasets[0].data = [stats.allowed, stats.blocked];
+                          chart.update(); //обновление диаграммы
+                      }
+                  }
+                  window.onload = function() { //инициализация при загрузке страницы
+                      initChart(); //создание пустой диаграммы
+                      refreshLogs(); //загрузка таблицы журнала
+                      refreshStats(); //загрузка диаграммы
+                  };
+              </script>
+          </body>
+          </html>
+          
